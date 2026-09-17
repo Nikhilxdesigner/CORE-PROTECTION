@@ -1,0 +1,16 @@
+{
+  "name": "core-protection",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Camera Defense: Overdrive - a 3D webcam AR survival game with a deterministic fixed-step simulation. Zero runtime dependencies; Three.js is loaded from a pinned CDN import map.",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "serve": "node tools/dev-server.mjs 8099",
+    "start": "node tools/dev-server.mjs 8099"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

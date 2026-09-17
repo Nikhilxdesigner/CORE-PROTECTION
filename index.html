@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#04060e">
+<title>Camera Defense: Overdrive</title>
+<link rel="stylesheet" href="styles/main.css">
+
+<!--
+  Three.js is pinned and loaded from a CDN through an import map: no build step,
+  no bundler, no vendored copy. `three/addons/` maps to the examples/jsm tree,
+  which is where the post-processing passes live.
+  Offline play requires vendoring this same version into `vendor/three/`.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<main id="app">
+
+    <!-- ================================================== boot ============ -->
+    <section id="screen-boot" class="screen active">
+        <div class="boot-inner">
+            <h1 class="title glitch" data-text="CAMERA DEFENSE">CAMERA DEFENSE</h1>
+            <p class="subtitle">OVERDRIVE</p>
+            <div class="boot-bar"><div id="boot-bar-fill"></div></div>
+            <p id="boot-status" class="boot-status">Warming up the arena...</p>
+        </div>
+    </section>
+
+    <!-- ================================================== fatal =========== -->
+    <section id="screen-fatal" class="screen">
+        <div class="panel">
+            <h2 class="danger">UNABLE TO START</h2>
+            <p id="fatal-msg">Something went wrong.</p>
+            <p id="fatal-detail" class="dim"></p>
+        </div>
+    </section>
+
+    <!-- ================================================== menu ============ -->
+    <section id="screen-menu" class="screen">
+        <div class="panel wide">
+            <h1 class="title glitch" data-text="CAMERA DEFENSE">CAMERA DEFENSE</h1>
+            <p class="subtitle">OVERDRIVE · your room is the arena</p>
+
+            <div class="menu-stats">
+                <div><span id="menu-cores">0</span><small>CORES</small></div>
+                <div><span id="menu-best">0</span><small>BEST SCORE</small></div>
+                <div><span id="menu-best-wave">0</span><small>BEST WAVE</small></div>
+                <div><span id="menu-kills">0</span><small>KILLS</small></div>
+                <div><span id="menu-contracts">0/0</span><small>CONTRACTS</small></div>
+                <div><span id="menu-streak">0 days</span><small>DAILY STREAK</small></div>
+            </div>
+
+            <div class="menu-buttons">
+                <button id="btn-play" class="btn primary" type="button">PLAY</button>
+                <button id="btn-daily" class="btn daily" type="button">DAILY CHALLENGE</button>
+                <button id="btn-arsenal" class="btn small" type="button">ARSENAL</button>
+                <button id="btn-contracts" class="btn small" type="button">CONTRACTS</button>
+                <button id="btn-howto" class="btn small" type="button">HOW TO PLAY</button>
+                <button id="btn-settings" class="btn small" type="button">SETTINGS</button>
+            </div>
+
+            <p id="menu-daily-info" class="dim"></p>
+        </div>
+    </section>
+
+    <!-- ================================================== game ============ -->
+    <section id="screen-game" class="screen game">
+        <div id="stage"></div>
+
+        <div id="hud">
+            <div class="hud-top">
+                <div class="hud-block score">
+                    <small>SCORE</small>
+                    <span id="hud-score">0</span>
+                </div>
+
+                <div id="hud-combo" class="hud-block combo">
+                    <small>COMBO</small>
+                    <span id="hud-combo-value">0</span>
+                    <div class="combo-bar"><div id="hud-combo-timer"></div></div>
+                    <em id="hud-combo-best">BEST 0</em>
+                </div>
+
+                <div class="hud-block wave">
+                    <small>WAVE</small>
+                    <span id="hud-wave">1</span>
+                    <em id="hud-mode">STANDARD</em>
+                </div>
+
+                <div class="hud-block core">
+                    <small>CORE</small>
+                    <span id="hud-core"></span>
+                </div>
+            </div>
+
+            <div class="hud-bottom">
+                <div id="hud-hyper" class="hyper">
+                    <small>HYPER</small>
+                    <div class="hyper-bar"><div id="hud-hyper-bar"></div></div>
+                </div>
+                <div class="hud-chips">
+                    <span id="hud-weapon" class="chip">PULSE REPEATER</span>
+                    <span id="hud-quality" class="chip">AUTO</span>
+                    <span id="hud-seed" class="chip">SEED -</span>
+                </div>
+                <div id="hud-daily" class="hud-daily"></div>
+            </div>
+
+            <!-- In-game controls: always reachable, never steal a shot
+                 (#hud is pointer-events:none and only buttons re-enable it). -->
+            <div class="hud-controls">
+                <button id="btn-hud-pause" class="hud-btn" type="button" title="Pause (Esc)">❚❚</button>
+                <button id="btn-hud-exit" class="hud-btn danger" type="button" title="Exit to menu">✕</button>
+            </div>
+
+            <div id="hud-banner" class="hud-banner">
+                <span id="hud-banner-title"></span>
+                <em id="hud-banner-sub"></em>
+            </div>
+
+            <!-- Aim scope: the ring is the real hit radius of the current weapon,
+                 and the plate names whatever is under the sight. -->
+            <div id="hud-scope" class="scope" data-state="searching">
+                <div id="scope-reticle" class="reticle">
+                    <span id="scope-ring" class="reticle-ring"></span>
+                    <span class="reticle-cross"></span>
+                    <span class="reticle-dot"></span>
+                    <span id="scope-state" class="scope-state">NO TARGET</span>
+
+                    <!-- Nested inside the reticle so it tracks the aim point for
+                         free; CSS flips it near the screen edges. -->
+                    <div id="hud-target" class="target-card hidden">
+                        <div class="target-head">
+                            <span id="target-name">TARGET</span>
+                            <em id="target-tags"></em>
+                        </div>
+                        <div class="target-hp"><div id="target-hp-fill"></div></div>
+                        <div class="target-rows">
+                            <span id="target-hp-text">0/0 HP</span>
+                            <strong id="target-shots">--</strong>
+                        </div>
+                        <div class="target-rows dim">
+                            <span id="target-distance">--</span>
+                            <span id="target-weapon">--</span>
+                        </div>
+                        <div id="target-hint" class="target-hint">Ring is your hit radius</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="hud-killfeed" class="killfeed"></div>
+            <div id="hud-popups" class="popups"></div>
+            <div id="hud-toasts" class="toasts"></div>
+            <div id="hud-debug" class="hud-debug"></div>
+        </div>
+    </section>
+
+    <!-- ================================================== draft =========== -->
+    <section id="screen-draft" class="screen draft">
+        <div class="draft-inner">
+            <h2>WAVE CLEAR · CHOOSE AN UPGRADE</h2>
+            <p class="dim">The world slows while you decide. Keys 1 / 2 / 3 also work.</p>
+            <div id="draft-cards" class="draft-cards"></div>
+            <button id="btn-close-draft" class="btn small" type="button">pick later</button>
+        </div>
+    </section>
+
+    <!-- ================================================== pause =========== -->
+    <section id="screen-pause" class="screen">
+        <div class="panel">
+            <h2>PAUSED</h2>
+            <p class="dim">Combat is halted. Resume when you are ready - the run is preserved.</p>
+            <div class="menu-buttons">
+                <button id="btn-resume" class="btn primary" type="button">RESUME</button>
+                <button id="btn-restart" class="btn" type="button">RESTART RUN</button>
+                <button id="btn-pause-settings" class="btn" type="button">SETTINGS</button>
+                <button id="btn-menu" class="btn" type="button">MAIN MENU</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================== results ========= -->
+    <section id="screen-results" class="screen">
+        <div class="panel wide results">
+            <h2 id="res-reason">RUN COMPLETE</h2>
+            <div class="result-top">
+                <div>
+                    <small>SCORE</small>
+                    <strong id="res-score">0</strong>
+                    <div id="res-delta" class="res-delta"></div>
+                </div>
+                <div class="rating"><small>RATING</small><strong id="res-rating">C</strong></div>
+            </div>
+
+            <div class="result-grid">
+                <div><small>WAVE</small><span id="res-wave">0</span></div>
+                <div><small>BEST COMBO</small><span id="res-combo">0</span></div>
+                <div><small>KILLS</small><span id="res-kills">0</span></div>
+                <div><small>ACCURACY</small><span id="res-accuracy">0%</span></div>
+                <div><small>TIME</small><span id="res-time">0:00</span></div>
+                <div><small>CORES</small><span id="res-cores">+0</span></div>
+                <div><small>PERSONAL BEST</small><span id="res-best">0</span></div>
+            </div>
+
+            <p id="res-daily" class="dim"></p>
+            <div id="res-contracts" class="res-list"></div>
+            <div id="res-unlocks" class="res-list unlocks"></div>
+
+            <h3>NEARLY THERE</h3>
+            <div id="res-near" class="near-list"></div>
+
+            <h3>BUILD</h3>
+            <div id="res-build" class="build-list"></div>
+
+            <div class="menu-buttons">
+                <button id="btn-again" class="btn primary" type="button">PLAY AGAIN (R)</button>
+                <button id="btn-results-menu" class="btn" type="button">MAIN MENU</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================== arsenal ========= -->
+    <section id="screen-arsenal" class="screen">
+        <div class="panel wide">
+            <h2>ARSENAL · <span id="arsenal-cores">0</span> CORES</h2>
+            <p class="dim">Permanent upgrades apply to every future run.</p>
+            <div id="arsenal-list" class="arsenal-list"></div>
+            <h3>WEAPONS</h3>
+            <div id="arsenal-weapons" class="weapon-list"></div>
+            <h3>ARENA SKINS</h3>
+            <div id="arsenal-skins" class="skin-list"></div>
+            <div class="menu-buttons">
+                <button id="btn-arsenal-back" class="btn" type="button">BACK</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================== contracts ======= -->
+    <section id="screen-contracts" class="screen">
+        <div class="panel wide">
+            <h2>CONTRACTS</h2>
+            <p id="contracts-summary" class="dim"></p>
+            <div id="contracts-list" class="contract-list"></div>
+            <div class="menu-buttons">
+                <button id="btn-contracts-back" class="btn" type="button">BACK</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================== how to play ===== -->
+    <section id="screen-howto" class="screen">
+        <div class="panel wide">
+            <h2>HOW TO PLAY</h2>
+            <ul class="howto">
+                <li><strong>Aim</strong> with the mouse (or drag on a touch screen) and <strong>hold</strong> to fire into the arena.</li>
+                <li><strong>Watch the scope.</strong> The ring around your sight <em>is</em> your hit radius, and the plate beside it names the target: LOCKED means a shot at that point connects, OFF TARGET means the body is under the sight but outside the ring.</li>
+                <li><strong>Defend the core</strong> at the centre - it is always marked by a ground disc, a vertical light beacon and an expanding sonar halo, from any angle.</li>
+                <li><strong>Draft an upgrade</strong> every time you clear a wave. Two maxed cards can fuse into an evolution.</li>
+                <li><strong>Watch the floor.</strong> Every enemy carries a glowing ring on the ground - spawn rings appear before the enemy does, so scanning for rings finds targets fast.</li>
+                <li><strong>Shoot the pods</strong> enemies drop - powerups are collected with a shot, not by touching them.</li>
+                <li><strong>Defuse Void Mines</strong> before their fuse runs out; the blast also shoves enemies around.</li>
+                <li><strong>Build combo</strong> to charge <strong>Hyper Mode</strong>: the world slows, you speed up.</li>
+                <li><strong>Spend cores</strong> in the Arsenal and finish contracts to unlock weapons and arena skins.</li>
+                <li><strong>Daily Challenge</strong> uses a UTC seed: everyone worldwide gets the same waves and the same drafts.</li>
+            </ul>
+            <p class="dim">Keys: Esc pause · R restart · M mute · F3 debug overlay (with ?debug=1) · 1/2/3 pick a draft card</p>
+            <div class="menu-buttons">
+                <button id="btn-howto-back" class="btn" type="button">BACK</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================================================== settings ======== -->
+    <section id="screen-settings" class="screen">
+        <div class="panel wide">
+            <h2>SETTINGS</h2>
+            <div class="setting-row">
+                <label for="set-quality">Graphics quality</label>
+                <select id="set-quality"></select>
+            </div>
+            <div class="setting-row">
+                <label for="set-music">Music volume</label>
+                <input id="set-music" type="range" min="0" max="100" step="1">
+                <span id="set-music-val">45%</span>
+            </div>
+            <div class="setting-row">
+                <label for="set-sfx">Effects volume</label>
+                <input id="set-sfx" type="range" min="0" max="100" step="1">
+                <span id="set-sfx-val">70%</span>
+            </div>
+            <div class="setting-row">
+                <label for="set-aimassist">Aim assist</label>
+                <input id="set-aimassist" type="range" min="0" max="150" step="5">
+                <span id="set-aimassist-val">25%</span>
+            </div>
+            <div class="setting-row">
+                <label for="set-reduced-motion">Reduce motion</label>
+                <input id="set-reduced-motion" type="checkbox">
+            </div>
+            <div class="setting-row">
+                <label for="set-reduced-flash">Reduce flashing</label>
+                <input id="set-reduced-flash" type="checkbox">
+            </div>
+            <div class="setting-row">
+                <label for="set-reduce-dilation">Soften Hyper time-slow</label>
+                <input id="set-reduce-dilation" type="checkbox">
+            </div>
+            <div class="menu-buttons">
+                <button id="btn-reset-profile" class="btn danger" type="button">RESET PROFILE</button>
+                <button id="btn-settings-back" class="btn primary" type="button">BACK</button>
+            </div>
+        </div>
+    </section>
+
+    <div id="screens-toast" class="screen-toast"></div>
+</main>
+
+<script type="module" src="src/main.js"></script>
+
+<!-- Boot watchdog: if the module never runs (CDN blocked, import map
+     unsupported), say so instead of leaving a blank screen. -->
+<script>
+(function () {
+    var warned = false;
+    setTimeout(function () {
+        if (window.__CD3D_BOOTED || warned) return;
+        warned = true;
+        var boot = document.getElementById('screen-boot');
+        var fatal = document.getElementById('screen-fatal');
+        var msg = document.getElementById('fatal-msg');
+        var detail = document.getElementById('fatal-detail');
+        if (msg) msg.textContent = 'The 3D engine did not load.';
+        if (detail) {
+            detail.textContent = 'This game loads Three.js from a CDN through an ES module import map. '
+                + 'Check your connection, make sure you are serving the folder over http:// (not file://), '
+                + 'and use a browser that supports import maps.';
+        }
+        if (boot) boot.classList.remove('active');
+        if (fatal) fatal.classList.add('active');
+    }, 8000);
+})();
+</script>
+</body>
+</html>
